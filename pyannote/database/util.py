@@ -457,6 +457,41 @@ def load_rttm(file_rttm):
 
     return annotations
 
+def load_id(file_id):
+    """Load id file
+
+    Parameter
+    ---------
+    file_id : `str`
+        Path to id file.
+
+    Returns
+    -------
+    annotations : `dict`
+        Speaker diarization as a {uri: pyannote.core.Annotation} dictionary.
+    """
+
+    names = ['NA1', 'uri', 'NA2', 'start', 'duration',
+             'NA3', 'NA4', 'speaker', 'NA5', 'distance']
+    dtype = {'uri': str, 'start': float, 'duration': float, 'speaker': str}
+    data = pd.read_csv(file_id, names=names, dtype=dtype,
+                       delim_whitespace=True,
+                       keep_default_na=False)
+
+    annotations, distances_per_uri = dict(), dict()
+    for uri, turns in data.groupby('uri'):
+        annotation = Annotation(uri=uri)
+        distances = dict()
+        for i, turn in turns.iterrows():
+            segment = Segment(turn.start, turn.start + turn.duration)
+            annotation[segment, i] = turn.speaker
+            if segment not in distances:
+                distances[segment] = dict()
+            distances[segment][turn.speaker] = turn.distance
+        annotations[uri] = annotation
+        distances_per_uri[uri] = distances
+
+    return annotations, distances_per_uri
 
 class RTTMLoader(object):
     """RTTM loader for use as pyannote.database preprocessor
