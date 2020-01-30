@@ -469,6 +469,10 @@ def load_id(file_id):
     -------
     annotations : `dict`
         Speaker diarization as a {uri: pyannote.core.Annotation} dictionary.
+    distances_per_uri : `dict`
+        Provides distances for every file in annotations as a {uri: distance} dictionary.
+        `distance` is itself a dict providing for each segment and each label the distance
+        to the reference speaker (see pyannote.audio.speaker_identification.SpeakerIdentification pipeline).
     """
 
     names = ['NA1', 'uri', 'NA2', 'start', 'duration',
