@@ -2,8 +2,22 @@
 Changelog
 #########
 
-Version 2.4.2 (20202-01)
+Version 2.5 (2020-02-04)
 ~~~~~~~~~~~~~~~~~~~~~~~~
+
+  - BREAKING: refactor {current | protocol}_file_iter
+  - BREAKING: only rely on "uri" to decide if a ProtocolFile contains multiple files
+  - BREAKING: deprecate FileFinder.current_file_iter in favor of ProtocolFile.files
+  - BREAKING: deprecate FileFinder.protocol_file_iter in favor of Protocol.files
+  - fix: fix support for lazy preprocessors in {Protocol | ProtocolFile}.files
+
+Version 2.4.3 (2020-01-24)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  - fix: fix infinite recursion in "ProtocolFile" lazy evaluation
+
+Version 2.4.2 (2020-01-06)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
   - fix: add support for int-like database name in custom protocol
 
