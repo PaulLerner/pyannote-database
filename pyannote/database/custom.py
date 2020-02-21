@@ -180,7 +180,7 @@ def subset_iter(database_name, file_lst=None, file_rttm=None,
         if file_rttm is not None:
             current_file['annotation'] = annotations.get(
                 uri, Annotation(uri=uri))
-            if current_file['annotated']:
+            if current_file.get('annotated'):
                 annotation = current_file['annotation'].crop(current_file['annotated'])
                 if annotation != current_file['annotation']:
                     msg = (
