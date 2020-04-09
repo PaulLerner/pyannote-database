@@ -156,13 +156,15 @@ Usage
         for item in generator:
             yield self.preprocess(item)
 
-    def stats(self, subset):
+    def stats(self, subset, min_duration = 0.0):
         """Obtain global statistics on a given subset
 
 Parameters
 ----------
 subset : {'train', 'development', 'test'}
-
+min_duration: float, optional
+            Doesn't take into account segments with a duration inferior to `min_duration`
+            Defaults to take into account every segment (i.e. 0.0)
 Returns
 -------
 stats : dict
@@ -182,24 +184,26 @@ stats : dict
         n_files = 0
         labels = {}
 
+        #FIXME what is lower_bound ??
         lower_bound = False
 
         for item in getattr(self, subset)():
 
             annotated = get_annotated(item)
-            annotated_duration += annotated.duration()
+            annotated_duration += annotated.duration(min_duration)
 
             # increment 'annotation' total duration
             annotation = item['annotation']
-            annotation_duration += annotation.get_timeline().duration()
+            annotation_duration += annotation.get_timeline().duration(min_duration)
 
-            for label, duration in annotation.chart():
+            for label, duration in annotation.chart(min_duration=min_duration):
                 if label not in labels:
                     labels[label] = 0.
                 labels[label] += duration
             n_files += 1
 
-        stats = {'annotated': annotated_duration,
+        stats = {'min_duration': min_duration,
+                 'annotated': annotated_duration,
                  'annotation': annotation_duration,
                  'n_files': n_files,
                  'labels': labels}
