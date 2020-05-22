@@ -501,3 +501,98 @@ class LabelMapper(object):
                 raise ValueError(msg)
 
         return current_file['annotation'].rename_labels(mapping=self.mapping)
+
+def load_aligned(current_transcription):
+    tokens, attributes = [], []
+
+    with open(current_transcription) as file:
+        current_transcription = file.read().split('\n')
+
+    for line in current_transcription:
+        if line == '':
+            continue
+        _, speaker, start, end, text, confidence = line.split()
+        start, end, confidence = map(float, (start, end, confidence))
+        tokens.append(text)
+        attributes.append((speaker, start, end, confidence))
+
+    return tokens, attributes
+
+def load_txt(current_transcription):
+
+    with open(current_transcription) as file:
+        current_transcription = file.read().split('\n')
+
+    tokens, speakers = [], []
+    for line in current_transcription:
+        # line should not be empty
+        if line == '':
+            continue
+        line = line.split()
+        # there should be at least one speaker and one token per line
+        if len(line) < 2:
+            continue
+        speaker = line[0]
+        for token in line[1:]:
+            speakers.append(speaker)
+            tokens.append(token)
+    return tokens, speakers
+
+def load_entities(current_entities):
+
+    with open(current_entities) as file:
+        current_entities = file.read().split('\n')
+
+    tokens, attributes = [], []
+    # default values for forced-alignment
+    time_start, time_end, alignment_confidence = None, None, 0.0
+    for line in current_entities[1:]:
+        if line == '':
+            continue
+        _, _, token, _, pos_, tag_, dep_, _, lemma_, speaker, ent_type_, _, _, _, _, ent_kb_id_ = line.split(';')
+        # remove empty lines
+        if token == '':
+            continue
+        # first token of each line includes speaker names
+        token = token[token.find(' ') + 1:]
+        tokens.append(token)
+        attributes.append((pos_, tag_, dep_, lemma_, ent_type_, ent_kb_id_, speaker, time_start, time_end, alignment_confidence))
+    return tokens, attributes
+
+def merge_transcriptions_entities(current_transcription, e_tokens, e_attributes):
+
+    i = 0
+    tokens, attributes = [], []
+    for t_token in current_transcription:
+        token = e_tokens[i]
+        pos_, tag_, dep_, lemma_, ent_type_, ent_kb_id_, _, _, _, _ = e_attributes[i]
+
+        # handle tokenization
+        skip_text = False
+        while token != t_token.text and i + 1 < len(e_tokens):
+            # handle weird '"' corner-case
+            if '"' in token:
+                break
+            # handle punctuation
+            elif token == '.':
+                i += 1
+                token = e_tokens[i]
+            elif token.replace('.','') == t_token.text.replace('.',''):
+                break
+            elif t_token.text == '.':
+                skip_text = True
+                break
+            # token was split by a tokenizer at some point
+            else:
+                token += e_tokens[i + 1]
+                i += 1
+        if skip_text:
+            continue
+        i += 1
+
+        tokens.append(t_token.text)
+        # everything that matter is here :
+        # we return t_token._.* attributes instead of default values
+        attributes.append((pos_, tag_, dep_, lemma_, ent_type_, ent_kb_id_, t_token._.speaker, t_token._.time_start, t_token._.time_end, t_token._.alignment_confidence))
+
+    return tokens, attributes
