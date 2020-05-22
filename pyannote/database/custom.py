@@ -28,11 +28,14 @@
 # Pavel KORSHUNOV - https://www.idiap.ch/~pkorshunov/
 # Paul LERNER
 
+from spacy.vocab import Vocab
+from spacy.tokens import Doc, Token
 from typing import Text
 from pathlib import Path
 from . import protocol as Protocol
 from .database import Database
-from .util import load_lst, load_uem, load_mdtm, load_rttm, load_mapping
+from .util import load_lst, load_uem, load_mdtm, load_rttm, load_mapping, load_entities, \
+    merge_transcriptions_entities, load_aligned, load_txt
 import functools
 import yaml
 from pyannote.core import Annotation, Timeline
@@ -96,7 +99,7 @@ def meta_subset_iter(config):
 
 
 def subset_iter(database_name, file_lst=None, file_rttm=None,
-                file_uem=None, domain_txt=None):
+                file_uem=None, domain_txt=None, transcriptions=None, entities=None):
     """This function will become a xxx_iter method of a protocol.
 
     Parameters
@@ -111,6 +114,13 @@ def subset_iter(database_name, file_lst=None, file_rttm=None,
         Path to UEM file.
     domain_txt : `Path`, optional
         Path to domain mapping file.
+    transcriptions : `Path`, optional
+        Path to the transcriptions, either in '.txt' or '.aligned' format.
+        Should contain a '{uri}' placeholder.
+        See pyannote.db.plumcot
+    entities : `Path`, optional
+        Path to the entities in csv format as described in pyannote.db.plumcot
+        Should contain a '{uri}' placeholder.
 
     Yields
     ------
@@ -118,7 +128,6 @@ def subset_iter(database_name, file_lst=None, file_rttm=None,
         Dictionary that provides information about a file.
         This must include (at the very least) 'uri' and 'database' keys.
     """
-
     annotations, annotateds, uris = dict(), dict(), list()
 
     # load annotations
@@ -161,9 +170,15 @@ def subset_iter(database_name, file_lst=None, file_rttm=None,
     if domain_txt is not None:
         domains = load_mapping(domain_txt)
 
+    # FIXME: transcriptions == None here although it prints this same path in L389
+    # what am I missing ?
+    print(transcriptions, entities)
+    transcriptions=Path("/home/paul/Documents/limsi/pyannote-db-plumcot/Plumcot/data/TheOffice/forced-alignment/{uri}.aligned")
+    entities=Path("/home/paul/Documents/limsi/pyannote-db-plumcot/Plumcot/data/TheOffice/annotated_transcripts/merge_{uri}.csv")
+
     # loop on all URIs
     for uri in uris:
-
+        print(uri)
         # initialize current file with the mandatory keys
         current_file = {'database': database_name, 'uri': uri}
 
@@ -186,6 +201,54 @@ def subset_iter(database_name, file_lst=None, file_rttm=None,
         if domain_txt is not None:
             current_file['domain'] = domains[uri]
 
+        # add 'transcription' if transcriptions or entities are provided
+        if transcriptions is not None:
+            # 1. add custom attributes to Token
+            # speaker attribute should always exist but might be set to 'unavailable'
+            Token.set_extension("speaker", default='unavailable')
+            current_transcription = str(transcriptions).format(uri=uri)
+            if transcriptions.suffix == '.txt':
+                tokens, speakers = load_txt(current_transcription)
+                current_transcription = Doc(Vocab(), tokens)
+                for token, speaker in zip(current_transcription, speakers):
+                    token._.speaker = speaker
+            elif transcriptions.suffix == '.aligned':
+                # add extra forced-alignment attributes
+                Token.set_extension("time_start", default=None)
+                Token.set_extension("time_end", default=None)
+                Token.set_extension("alignment_confidence", default=0.0)
+                tokens, attributes = load_aligned(current_transcription)
+                print('\n\naligned current_transcription',current_transcription)
+                current_transcription = Doc(Vocab(), tokens)
+                for token, (speaker, time_start, time_end, alignment_confidence) in zip(current_transcription, attributes):
+                    token._.speaker, token._.time_start, token._.time_end, token._.alignment_confidence = speaker, time_start, time_end, alignment_confidence
+            else:
+                msg = (f'Only ".txt" and ".aligned" formats are supported for now, '
+                       f'got "{transcriptions.suffix}"')
+                raise NotImplementedError(msg)
+            current_file['transcription'] = current_transcription
+
+        if entities is not None:
+            voc = Vocab()
+            current_entities = str(entities).format(uri=uri)
+            tokens, attributes = load_entities(current_entities)
+            # print('\n\nentities tokens, attributes')
+            # for t, attr in zip(tokens, attributes):
+            #     print(t, attr)
+            if transcriptions.suffix == '.aligned':
+                tokens, attributes = merge_transcriptions_entities(current_transcription, tokens, attributes)
+                # print('\n\nentities tokens, attributes after merge')
+                # for t, attr in zip(tokens, attributes):
+                #     print(t, attr)
+            current_transcription = Doc(Vocab(), tokens)
+            for token, (pos_, tag_, dep_, lemma_, ent_type_, ent_kb_id_, speaker, time_start, time_end, alignment_confidence) in zip(current_transcription, attributes):
+                token.pos_, token.tag_, token.dep_, token.lemma_, token.ent_type_, token.ent_kb_id_, token._.speaker, token._.time_start, token._.time_end, token._.alignment_confidence = pos_, tag_, dep_, lemma_, ent_type_, ent_kb_id_, speaker, time_start, time_end, alignment_confidence
+            current_file['transcription'] = current_transcription
+
+        # from pyannote.core import Segment
+        # for token in current_transcription:
+        #     s = Segment(token._.time_start, token._.time_end)
+        #     print(f'{s} {token._.speaker}: {token.text} -> {token.ent_kb_id_}')
         yield current_file
 
 
@@ -218,12 +281,14 @@ def resolve_path(path: Text, database_yml: Path) -> Path:
 
     path = Path(path).expanduser()
 
-    if path.is_file():
+    # HACK: is there a better way to check if a Path containing a placeholder exists ?
+    # e.g. "/path/to/{uri}.txt"
+    if path.parent.exists():
         return path
 
     else:
         relative_path = database_yml.parent / path
-        if relative_path.is_file():
+        if relative_path.parent.exists():
             return relative_path
 
     msg = f'Could not find file "{path}".'
@@ -308,8 +373,8 @@ def add_custom_protocols():
                     else:
 
                         paths = subsets[subset]
-                        file_rttm, file_lst, file_uem, domain_txt = \
-                            None, None, None, None
+                        file_rttm, file_lst, file_uem, domain_txt, transcriptions, entities = \
+                            None, None, None, None, None, None
                         if 'annotation' in paths:
                             file_rttm = resolve_path(paths['annotation'], database_yml)
                         if 'uris' in paths:
@@ -318,12 +383,21 @@ def add_custom_protocols():
                             file_uem = resolve_path(paths['annotated'], database_yml)
                         if 'domain' in paths:
                             domain_txt = resolve_path(paths['domain'], database_yml)
+                        if 'transcriptions' in paths:
+                            print(paths['transcriptions'])
+                            transcriptions = resolve_path(paths['transcriptions'], database_yml)
+                            print(transcriptions)
+                        if 'entities' in paths:
+                            print(paths['entities'])
+                            entities = resolve_path(paths['entities'], database_yml)
+                            print(entities)
 
                         # define xxx_iter method
                         protocol_methods[f'{sub}_iter'] = functools.partial(
                             subset_iter, database_name, file_rttm=file_rttm,
                             file_lst=file_lst, file_uem=file_uem,
-                            domain_txt=domain_txt)
+                            domain_txt=domain_txt, transcriptions=transcriptions,
+                            entities=entities)
 
                 # create protocol class on-the-fly
                 protocol = type(protocol_name, (protocol_base_class,),
