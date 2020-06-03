@@ -42,6 +42,11 @@ from pyannote.core import Annotation, Timeline
 
 from . import DATABASES, TASKS
 
+# add custom attributes to Token
+Token.set_extension("speaker", default='unavailable')
+Token.set_extension("time_start", default=None)
+Token.set_extension("time_end", default=None)
+Token.set_extension("alignment_confidence", default=0.0)
 
 # annoying mapping...
 SUBSET_MAPPING = {'train': 'trn', 'development': 'dev', 'test': 'tst'}
@@ -203,9 +208,6 @@ def subset_iter(database_name, file_lst=None, file_rttm=None,
 
         # add 'transcription' if transcriptions or entities are provided
         if transcriptions is not None:
-            # 1. add custom attributes to Token
-            # speaker attribute should always exist but might be set to 'unavailable'
-            Token.set_extension("speaker", default='unavailable')
             current_transcription = str(transcriptions).format(uri=uri)
             if transcriptions.suffix == '.txt':
                 tokens, speakers = load_txt(current_transcription)
@@ -213,10 +215,6 @@ def subset_iter(database_name, file_lst=None, file_rttm=None,
                 for token, speaker in zip(current_transcription, speakers):
                     token._.speaker = speaker
             elif transcriptions.suffix == '.aligned':
-                # add extra forced-alignment attributes
-                Token.set_extension("time_start", default=None)
-                Token.set_extension("time_end", default=None)
-                Token.set_extension("alignment_confidence", default=0.0)
                 tokens, attributes = load_aligned(current_transcription)
                 print('\n\naligned current_transcription',current_transcription)
                 current_transcription = Doc(Vocab(), tokens)
