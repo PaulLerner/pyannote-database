@@ -322,6 +322,58 @@ def load_rttm(file_rttm):
     return annotations
 
 
+def load_id(file_id):
+    """Load id file (RTTM-like)
+
+    Parameter
+    ---------
+    file_id : `str`
+        Path to id file.
+        Format is the same as RTTM although last column should be confidence (float) instead of "NA"
+
+    Returns
+    -------
+    annotations : `dict`
+        Speaker diarization as a {uri: pyannote.core.Annotation} dictionary.
+        Although "tracks" of the annotation actually represent the confidence of the model in the label
+
+    See Also
+    --------
+    load_rttm (where "tracks" are enumerated to allow speaker overlap)
+    """
+
+    names = [
+        "NA1",
+        "uri",
+        "NA2",
+        "start",
+        "duration",
+        "NA3",
+        "NA4",
+        "speaker",
+        "NA5",
+        "confidence",
+    ]
+    dtype = {"uri": str, "start": float, "duration": float, "speaker": str, "confidence": float}
+    data = pd.read_csv(
+        file_id,
+        names=names,
+        dtype=dtype,
+        delim_whitespace=True,
+        keep_default_na=False,
+    )
+
+    annotations = dict()
+    for uri, turns in data.groupby("uri"):
+        annotation = Annotation(uri=uri)
+        for i, turn in turns.iterrows():
+            segment = Segment(turn.start, turn.start + turn.duration)
+            annotation[segment, turn.confidence] = turn.speaker
+        annotations[uri] = annotation
+
+    return annotations
+
+
 class RTTMLoader(object):
     """RTTM loader for use as pyannote.database preprocessor
 
